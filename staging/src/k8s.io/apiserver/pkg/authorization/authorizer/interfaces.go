@@ -155,5 +155,7 @@ const (
 	DecisionAllow
 	// DecisionNoOpionion means that an authorizer has no opinion on whether
 	// to allow or deny an action.
+
+	// Note: 表示授权器对是否允许或拒绝某个操作没有意见，会继续执行下一个授权器。
 	DecisionNoOpinion
 )

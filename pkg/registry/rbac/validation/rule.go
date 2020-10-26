@@ -138,11 +138,14 @@ func (r *ruleAccumulator) visit(source fmt.Stringer, rule *rbacv1.PolicyRule, er
 func describeSubject(s *rbacv1.Subject, bindingNamespace string) string {
 	switch s.Kind {
 	case rbacv1.ServiceAccountKind:
+		// namespace存在, 输出sa绑定的namespace
 		if len(s.Namespace) > 0 {
 			return fmt.Sprintf("%s %q", s.Kind, s.Name+"/"+s.Namespace)
 		}
+		// namespace不存在, 输出sa默认绑定的namespace
 		return fmt.Sprintf("%s %q", s.Kind, s.Name+"/"+bindingNamespace)
 	default:
+		// 其他kind情况
 		return fmt.Sprintf("%s %q", s.Kind, s.Name)
 	}
 }
@@ -181,12 +184,22 @@ func (r *DefaultRuleResolver) VisitRulesFor(user user.Info, namespace string, vi
 			return
 		}
 	} else {
+		// sourceDescriber 建立 ClusterRoleBinding 和subjects数据结构,
+		// 并将该结构转化为一个可描述string类型
 		sourceDescriber := &clusterRoleBindingDescriber{}
+		// 遍历所有的 ClusterRoleBinding
+		// Note: 时间复杂度 O(N)
 		for _, clusterRoleBinding := range clusterRoleBindings {
+			// 查找 ClusterRoleBinding下的 Subject 是否有和该user匹配的
+			// Note: 时间复杂度 O(N)
 			subjectIndex, applies := appliesTo(user, clusterRoleBinding.Subjects, "")
+			// 没有匹配继续查找下一个 ClusterRoleBinding
 			if !applies {
 				continue
 			}
+
+			// 到这里说明在 ClusterRoleBinding 中找到了和 user 匹配的 subject, 即这个 ClusterRoleBinding 的 Subject
+			// 作用于该 user, 因此查找这个 ClusterRoleBinding 引用的 Role 中 定义的所有的 PolicyRules
 			rules, err := r.GetRoleReferenceRules(clusterRoleBinding.RoleRef, "")
 			if err != nil {
 				if !visitor(nil, nil, err) {
@@ -194,9 +207,16 @@ func (r *DefaultRuleResolver) VisitRulesFor(user user.Info, namespace string, vi
 				}
 				continue
 			}
+
+			// 保存该user 匹配的 binding 和  subject 数据结构
 			sourceDescriber.binding = clusterRoleBinding
 			sourceDescriber.subject = &clusterRoleBinding.Subjects[subjectIndex]
+
+			// 遍历所有的 Rules
+			// Note: 时间复杂度O(N)
 			for i := range rules {
+				// 将Rule传入visitor函数, 执行相关的业务逻辑, sourceDescriber 实现了String
+				// 接口, 可以打印 binding 和 subject 的信息
 				if !visitor(sourceDescriber, &rules[i], nil) {
 					return
 				}
@@ -204,7 +224,9 @@ func (r *DefaultRuleResolver) VisitRulesFor(user user.Info, namespace string, vi
 		}
 	}
 
+	// 存在namespace, 收集属于namespace的 RoleBinding
 	if len(namespace) > 0 {
+		// 获取该namespace的所有 RoleBinding
 		if roleBindings, err := r.roleBindingLister.ListRoleBindings(namespace); err != nil {
 			if !visitor(nil, nil, err) {
 				return
@@ -259,8 +281,11 @@ func (r *DefaultRuleResolver) GetRoleReferenceRules(roleRef rbacv1.RoleRef, bind
 
 // appliesTo returns whether any of the bindingSubjects applies to the specified subject,
 // and if true, the index of the first subject that applies
+// Note: O(N)
 func appliesTo(user user.Info, bindingSubjects []rbacv1.Subject, namespace string) (int, bool) {
+	// 遍历某个binding (可以是RoleBinding或者ClusterRoleBinding) 的所有Subject
 	for i, bindingSubject := range bindingSubjects {
+		//  判断user是否和subject匹配, 及这个binding是否作用于该user
 		if appliesToUser(user, bindingSubject, namespace) {
 			return i, true
 		}

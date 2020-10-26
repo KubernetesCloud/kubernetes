@@ -444,6 +444,7 @@ func (jm *Controller) syncJob(key string) (bool, error) {
 		klog.V(4).Infof("Finished syncing job %q (%v)", key, time.Since(startTime))
 	}()
 
+	// 从key中获取namespace和name
 	ns, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		return false, err
@@ -451,6 +452,7 @@ func (jm *Controller) syncJob(key string) (bool, error) {
 	if len(ns) == 0 || len(name) == 0 {
 		return false, fmt.Errorf("invalid job key %q: either namespace or name is missing", key)
 	}
+	// 获取job
 	sharedJob, err := jm.jobLister.Jobs(ns).Get(name)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -460,6 +462,7 @@ func (jm *Controller) syncJob(key string) (bool, error) {
 		}
 		return false, err
 	}
+	// copy
 	job := *sharedJob
 
 	// if job was finished previously, we don't want to redo the termination
@@ -475,13 +478,16 @@ func (jm *Controller) syncJob(key string) (bool, error) {
 	// the store after we've checked the expectation, the job sync is just deferred till the next relist.
 	jobNeedsSync := jm.expectations.SatisfiedExpectations(key)
 
+	// 获取job运行的pod list
 	pods, err := jm.getPodsForJob(&job)
 	if err != nil {
 		return false, err
 	}
 
+	// 选出所有active状态的pod
 	activePods := controller.FilterActivePods(pods)
 	active := int32(len(activePods))
+	// 分离出succeeded, failed pod
 	succeeded, failed := getStatus(pods)
 	conditions := len(job.Status.Conditions)
 	// job first start

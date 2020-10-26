@@ -24,7 +24,7 @@ import (
 type ClientConnectionConfiguration struct {
 	// kubeconfig is the path to a KubeConfig file.
 	Kubeconfig string
-	// acceptContentTypes defines the Accept header sent by clients when connecting to a server, overriding the
+	// acceptContentTypes defines the Accept header sent by clients when connecting to a servecomponentbaseconfigr, overriding the
 	// default value of 'application/json'. This field will control all connections to the server used by a particular
 	// client.
 	AcceptContentTypes string

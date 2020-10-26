@@ -102,6 +102,7 @@ automation, a control loop is a non-terminating loop that regulates the state of
 the system. In Kubernetes, a controller is a control loop that watches the shared
 state of the cluster through the apiserver and makes changes attempting to move the
 current state towards the desired state. Examples of controllers that ship with
+
 Kubernetes today are the replication controller, endpoints controller, namespace
 controller, and serviceaccounts controller.`,
 		PersistentPreRunE: func(*cobra.Command, []string) error {

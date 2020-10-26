@@ -61,11 +61,16 @@ type authorizingVisitor struct {
 }
 
 func (v *authorizingVisitor) visit(source fmt.Stringer, rule *rbacv1.PolicyRule, err error) bool {
+	// rule 存在时执行 RuleAllows, RuleAllows 根据rule判断是否对requestAttributes授权
 	if rule != nil && RuleAllows(v.requestAttributes, rule) {
+		// 允许授权
 		v.allowed = true
+		// 记录授权原因
 		v.reason = fmt.Sprintf("RBAC: allowed by %s", source.String())
 		return false
 	}
+	// VisitRulesFor 过程中发生了错误会传递给visitor(), authorizingVisitor
+	// 的visitor() 逻辑是记录这些错误
 	if err != nil {
 		v.errors = append(v.errors, err)
 	}
@@ -73,15 +78,20 @@ func (v *authorizingVisitor) visit(source fmt.Stringer, rule *rbacv1.PolicyRule,
 }
 
 func (r *RBACAuthorizer) Authorize(ctx context.Context, requestAttributes authorizer.Attributes) (authorizer.Decision, string, error) {
+	// authorizingVisitor对象实现了visitor(), 持有requestAttributes
 	ruleCheckingVisitor := &authorizingVisitor{requestAttributes: requestAttributes}
 
+	// 调用 DefaultRuleResolver 的 VisitRulesFor 实现, visitor() 使用 authorizingVisitor 的实现.
+	// authorizingVisitor 会在VisitRulesFor过程中保存授权状态
 	r.authorizationRuleResolver.VisitRulesFor(requestAttributes.GetUser(), requestAttributes.GetNamespace(), ruleCheckingVisitor.visit)
+	// 潘森是否允许授权
 	if ruleCheckingVisitor.allowed {
 		return authorizer.DecisionAllow, ruleCheckingVisitor.reason, nil
 	}
 
 	// Build a detailed log of the denial.
 	// Make the whole block conditional so we don't do a lot of string-building we won't use.
+	// 当--v 5时, 会输出下面的日志, 主要内容时显示出未能授权的具体的资源和路径等信息
 	if klog.V(5).Enabled() {
 		var operation string
 		if requestAttributes.IsResourceRequest() {
@@ -119,10 +129,14 @@ func (r *RBACAuthorizer) Authorize(ctx context.Context, requestAttributes author
 		klog.Infof("RBAC: no rules authorize user %q with groups %q to %s %s", requestAttributes.GetUser().GetName(), requestAttributes.GetUser().GetGroups(), operation, scope)
 	}
 
+	// authorizingVisitor 还会保存未能授权的错误信息, 通过 NewAggregate 聚合错误,
+	// 而后当成reason返回
 	reason := ""
 	if len(ruleCheckingVisitor.errors) > 0 {
 		reason = fmt.Sprintf("RBAC: %v", utilerrors.NewAggregate(ruleCheckingVisitor.errors))
 	}
+
+	// Note: RBAC 返回 DecisionNoOpinion, 因此如果后续还有Authorize流程, 则授权还会继续
 	return authorizer.DecisionNoOpinion, reason, nil
 }
 
@@ -156,8 +170,12 @@ func (r *RBACAuthorizer) RulesFor(user user.Info, namespace string) ([]authorize
 	return resourceRules, nonResourceRules, false, err
 }
 
-func New(roles rbacregistryvalidation.RoleGetter, roleBindings rbacregistryvalidation.RoleBindingLister, clusterRoles rbacregistryvalidation.ClusterRoleGetter, clusterRoleBindings rbacregistryvalidation.ClusterRoleBindingLister) *RBACAuthorizer {
+func New(roles rbacregistryvalidation.RoleGetter,
+	roleBindings rbacregistryvalidation.RoleBindingLister,
+	clusterRoles rbacregistryvalidation.ClusterRoleGetter,
+	clusterRoleBindings rbacregistryvalidation.ClusterRoleBindingLister) *RBACAuthorizer {
 	authorizer := &RBACAuthorizer{
+		// 创建DefaultRuleResolver解析器
 		authorizationRuleResolver: rbacregistryvalidation.NewDefaultRuleResolver(
 			roles, roleBindings, clusterRoles, clusterRoleBindings,
 		),
