@@ -57,20 +57,24 @@ func APIGroupMatches(rule *rbacv1.PolicyRule, requestedGroup string) bool {
 func ResourceMatches(rule *rbacv1.PolicyRule, combinedRequestedResource, requestedSubresource string) bool {
 	for _, ruleResource := range rule.Resources {
 		// if everything is allowed, we match
+		// resource为 * 返回true, 结束匹配
 		if ruleResource == rbacv1.ResourceAll {
 			return true
 		}
 		// if we have an exact match, we match
+		// 资源完全匹配（包括资源和子资源）
 		if ruleResource == combinedRequestedResource {
 			return true
 		}
 
 		// We can also match a */subresource.
 		// if there isn't a subresource, then continue
+		// 请求中不包含子资源结束匹配
 		if len(requestedSubresource) == 0 {
 			continue
 		}
 		// if the rule isn't in the format */subresource, then we don't match, continue
+		// 子资源匹配算法, kubernetes在rule的resources定义中, 包含子资源的格式为 */subresource,
 		if len(ruleResource) == len(requestedSubresource)+2 &&
 			strings.HasPrefix(ruleResource, "*/") &&
 			strings.HasSuffix(ruleResource, requestedSubresource) {
@@ -82,12 +86,17 @@ func ResourceMatches(rule *rbacv1.PolicyRule, combinedRequestedResource, request
 	return false
 }
 
+// ResourceNameMatches 按照rule引用的resourceNames做匹配, 不过需要注意对某些action或operation,
+// 例如 create 和 deletecollection 的请求, 不能通过resourceName做限制, 因为对象name在授权时可能是未知的
 func ResourceNameMatches(rule *rbacv1.PolicyRule, requestedName string) bool {
+	// rule 为定义resourceNames, 返回true, 匹配结束
 	if len(rule.ResourceNames) == 0 {
 		return true
 	}
 
+	// 遍历rule定义的所有的resourceName进行匹配
 	for _, ruleName := range rule.ResourceNames {
+		// 短路逻辑, 如果resourceNames集合有一个和请求的资源名称匹配, 则返回true
 		if ruleName == requestedName {
 			return true
 		}
@@ -96,14 +105,22 @@ func ResourceNameMatches(rule *rbacv1.PolicyRule, requestedName string) bool {
 	return false
 }
 
+// NonResourceURLMatches 执行非资源请求的URL路径匹配算法
 func NonResourceURLMatches(rule *rbacv1.PolicyRule, requestedURL string) bool {
 	for _, ruleURL := range rule.NonResourceURLs {
+		// ruleURL 为 *, 表示允许所有非资源的请求, 返回true, 匹配结束
 		if ruleURL == rbacv1.NonResourceAll {
 			return true
 		}
+		// ruleURL 和 requestedURL 完全匹配, 例如 ruleURL = /logs/*, requestURL = /logs/*
 		if ruleURL == requestedURL {
 			return true
 		}
+
+		// 1. ruleURL 包含后缀 *, 例如 /logs/*
+		// 2. 去除ruleURL的后缀 *, 例如 /logs/* -> /logs/ 判断去除后缀后的ruleURL是
+		//	  否包含 requestURL前缀, 例如 requestURL = /logs, ruleURL = /logs/, 则是包含的
+		// 上述两个条件全部满足返回true, 结束匹配
 		if strings.HasSuffix(ruleURL, "*") && strings.HasPrefix(requestedURL, strings.TrimRight(ruleURL, "*")) {
 			return true
 		}
